@@ -43,15 +43,14 @@ public class TableBuilder {
 		final StringParser parser = new StringParser(definition);
 		final Table table = new Table();
 		while (parser.hasNext()) {
-			buildColumn(parser, table);
+			column(parser, table);
 		}
-		definition.toCharArray();
 		return table;
 	}
 
-	private void buildColumn(final StringParser parser, final Table table) {
+	private void column(final StringParser parser, final Table table) {
 		final boolean separator = parser.isNext('|');
-		final IColumnRenderer renderer = renderer(parser);
+		final IColumnRenderer renderer = entity(parser);
 		final boolean defaultSorting = parser.isNext('^');
 		parser.expectNext('[');
 		final String header = parser.read(']');
@@ -59,28 +58,28 @@ public class TableBuilder {
 				defaultSorting);
 	}
 
-	private IColumnRenderer renderer(final StringParser parser) {
+	private IColumnRenderer entity(final StringParser parser) {
 		final char entityChar = parser.getNext();
 		switch (entityChar) {
 		case 'E':
 			return new LabelColumn();
 		case 'I':
-			return renderer(CounterEntity.INSTRUCTION, parser);
+			return representation(CounterEntity.INSTRUCTION, parser);
 		case 'B':
-			return renderer(CounterEntity.BRANCH, parser);
+			return representation(CounterEntity.BRANCH, parser);
 		case 'X':
-			return renderer(CounterEntity.COMPLEXITY, parser);
+			return representation(CounterEntity.COMPLEXITY, parser);
 		case 'L':
-			return renderer(CounterEntity.LINE, parser);
+			return representation(CounterEntity.LINE, parser);
 		case 'M':
-			return renderer(CounterEntity.METHOD, parser);
+			return representation(CounterEntity.METHOD, parser);
 		case 'C':
-			return renderer(CounterEntity.CLASS, parser);
+			return representation(CounterEntity.CLASS, parser);
 		}
 		throw new IllegalArgumentException("Unknown entity type: " + entityChar);
 	}
 
-	private IColumnRenderer renderer(final CounterEntity entity,
+	private IColumnRenderer representation(final CounterEntity entity,
 			final StringParser parser) {
 		final char repr = parser.getNext();
 		switch (repr) {
