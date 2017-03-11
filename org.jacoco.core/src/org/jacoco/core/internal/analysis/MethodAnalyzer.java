@@ -12,7 +12,11 @@
 package org.jacoco.core.internal.analysis;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.jacoco.core.analysis.ICounter;
 import org.jacoco.core.analysis.IMethodCoverage;
@@ -23,12 +27,17 @@ import org.jacoco.core.internal.flow.LabelInfo;
 import org.jacoco.core.internal.flow.MethodProbesVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.TryCatchBlockNode;
 
 /**
  * A {@link MethodProbesVisitor} that analyzes which statements and branches of
  * a method have been executed based on given probe data.
  */
-public class MethodAnalyzer extends MethodProbesVisitor {
+public class MethodAnalyzer extends MethodProbesVisitor
+		implements Filters.IOutput {
 
 	private final boolean[] probes;
 
@@ -86,6 +95,48 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 		return coverage;
 	}
 
+	/**
+	 * {@link MethodNode#accept(MethodVisitor)}
+	 */
+	@Override
+	public void accept(final MethodNode methodNode,
+			final MethodVisitor methodVisitor) {
+		this.nodeToInstruction.clear();
+		this.remappedJumps.clear();
+		this.ignored.clear();
+		this.ignoredJumpTargets.clear();
+		Filters.filter(methodNode, this);
+
+		for (TryCatchBlockNode n : methodNode.tryCatchBlocks) {
+			n.accept(methodVisitor);
+		}
+		for (int i = 0; i < methodNode.instructions.size(); i++) {
+			AbstractInsnNode instruction = methodNode.instructions.get(i);
+			currentNode = instruction;
+			instruction.accept(methodVisitor);
+		}
+		methodVisitor.visitEnd();
+	}
+
+	private Set<AbstractInsnNode> ignored = new HashSet<AbstractInsnNode>();
+	private Set<AbstractInsnNode> ignoredJumpTargets = new HashSet<AbstractInsnNode>();
+	private Map<AbstractInsnNode, AbstractInsnNode> remappedJumps = new HashMap<AbstractInsnNode, AbstractInsnNode>();
+	private Map<AbstractInsnNode, Instruction> nodeToInstruction = new HashMap<AbstractInsnNode, Instruction>();
+	private AbstractInsnNode currentNode;
+
+	public void ignore(final AbstractInsnNode instruction) {
+		ignored.add(instruction);
+	}
+
+	public void ignoreJumpTarget(final AbstractInsnNode instruction) {
+		ignoredJumpTargets.add(instruction);
+	}
+
+	public void remapJump(final AbstractInsnNode original,
+			final AbstractInsnNode remapped) {
+		remappedJumps.put(original, remapped);
+	}
+
 	@Override
 	public void visitLabel(final Label label) {
 		currentLabel.add(label);
@@ -107,6 +158,8 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 
 	private void visitInsn() {
 		final Instruction insn = new Instruction(currentLine);
+		insn.node = currentNode;
+		nodeToInstruction.put(currentNode, insn);
 		instructions.add(insn);
 		if (lastInsn != null) {
 			insn.setPredecessor(lastInsn);
@@ -162,6 +215,12 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 	@Override
 	public void visitJumpInsn(final int opcode, final Label label) {
 		visitInsn();
+
+		if (remappedJumps.containsKey(currentNode)) {
+			jumps.add(new Jump(
+					nodeToInstruction.get(remappedJumps.get(currentNode)),
+					label));
+		} else
 		jumps.add(new Jump(lastInsn, label));
 	}
 
@@ -215,6 +274,14 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 	public void visitJumpInsnWithProbe(final int opcode, final Label label,
 			final int probeId, final IFrame frame) {
 		visitInsn();
+
+		final AbstractInsnNode remapped = remappedJumps.get(currentNode);
+		if (remapped != null) {
+			final Instruction tmp = lastInsn;
+			lastInsn = nodeToInstruction.get(remapped);
+			addProbe(probeId);
+			lastInsn = tmp;
+		} else
 		addProbe(probeId);
 	}
 
@@ -263,6 +330,10 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 	public void visitEnd() {
 		// Wire jumps:
 		for (final Jump j : jumps) {
+			if (ignoredJumpTargets
+					.contains(LabelInfo.getInstruction(j.target).node)) {
+				continue;
+			}
 			LabelInfo.getInstruction(j.target).setPredecessor(j.source);
 		}
 		// Propagate probe values:
@@ -272,6 +343,10 @@ public class MethodAnalyzer extends MethodProbesVisitor {
 		// Report result:
 		coverage.ensureCapacity(firstLine, lastLine);
 		for (final Instruction i : instructions) {
+			if (ignored.contains(i.node)) {
+				continue;
+			}
+
 			final int total = i.getBranches();
 			final int covered = i.getCoveredBranches();
 			final ICounter instrCounter = covered == 0 ? CounterImpl.COUNTER_1_0
