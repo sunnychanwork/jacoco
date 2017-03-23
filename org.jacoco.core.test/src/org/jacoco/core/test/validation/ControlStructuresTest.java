@@ -41,8 +41,7 @@ public class ControlStructuresTest extends ValidationTestBase {
 		assertLine("missedelse", ICounter.NOT_COVERED);
 
 		// 4. Missed while block
-		assertLine("whilefalse", isJDKCompiler ? ICounter.FULLY_COVERED
-				: ICounter.PARTLY_COVERED, 1, 1);
+		assertLine("whilefalse", ICounter.FULLY_COVERED, 1, 1);
 		assertLine("missedwhile", ICounter.NOT_COVERED);
 
 		// 5. Always true while block
@@ -54,6 +53,7 @@ public class ControlStructuresTest extends ValidationTestBase {
 
 		// 7. Executed do while block
 		assertLine("executeddowhile", ICounter.FULLY_COVERED);
+		assertLine("executeddowhilefalse", ICounter.FULLY_COVERED, 1, 1);
 
 		// 8. Missed for block
 		assertLine("missedforincrementer", ICounter.PARTLY_COVERED, 1, 1);
